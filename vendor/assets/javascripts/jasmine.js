@@ -197,6 +197,21 @@ jasmine.any = function(clazz) {
 };
 
 /**
+ * Returns a matchable subset of a JSON object. For use in expectations when you don't care about all of the
+ * attributes on the object.
+ *
+ * @example
+ * // don't care about any other attributes than foo.
+ * expect(mySpy).toHaveBeenCalledWith(jasmine.objectContaining({foo: "bar"});
+ *
+ * @param sample {Object} sample
+ * @returns matchable object for the sample
+ */
+jasmine.objectContaining = function (sample) {
+    return new jasmine.Matchers.ObjectContaining(sample);
+};
+
+/**
  * Jasmine Spies are test doubles that can act as stubs, spies, fakes or when used in an expecation, mocks.
  *
  * Spies should be created in test setup, before expectations.  They can then be checked, using the standard Jasmine
@@ -735,12 +750,17 @@ jasmine.Env.prototype.version = function () {
  * @returns string containing jasmine version build info, if set.
  */
 jasmine.Env.prototype.versionString = function() {
-  if (jasmine.version_) {
-    var version = this.version();
-    return version.major + "." + version.minor + "." + version.build + " revision " + version.revision;
-  } else {
+  if (!jasmine.version_) {
     return "version unknown";
   }
+
+  var version = this.version();
+  var versionString = version.major + "." + version.minor + "." + version.build;
+  if (version.release_candidate) {
+    versionString += ".rc" + version.release_candidate;
+  }
+  versionString += " revision " + version.revision;
+  return versionString;
 };
 
 /**
@@ -769,8 +789,14 @@ jasmine.Env.prototype.execute = function() {
   this.currentRunner_.execute();
 };
 
-jasmine.Env.prototype.describe = function(description, specDefinitions) {
-  var suite = new jasmine.Suite(this, description, specDefinitions, this.currentSuite);
+jasmine.Env.prototype.describe = function(description, tags, specDefinitions) {
+  if (!specDefinitions) {
+    specDefinitions = tags;
+    tags = null;
+  }
+
+  tags = tags || {};
+  var suite = new jasmine.Suite(this, description, specDefinitions, this.currentSuite, tags);
 
   var parentSuite = this.currentSuite;
   if (parentSuite) {
@@ -827,8 +853,13 @@ jasmine.Env.prototype.xdescribe = function(desc, specDefinitions) {
   };
 };
 
-jasmine.Env.prototype.it = function(description, func) {
-  var spec = new jasmine.Spec(this, this.currentSuite, description);
+jasmine.Env.prototype.it = function(description, tags, func) {
+  if (!func) {
+    func = tags;
+    tags = null;
+  }
+
+  var spec = new jasmine.Spec(this, this.currentSuite, description, tags);
   this.currentSuite.add(spec);
   this.currentSpec = spec;
 
@@ -909,11 +940,19 @@ jasmine.Env.prototype.equals_ = function(a, b, mismatchKeys, mismatchValues) {
     return a.getTime() == b.getTime();
   }
 
-  if (a instanceof jasmine.Matchers.Any) {
+  if (a.jasmineMatches) {
+    return a.jasmineMatches(b);
+  }
+
+  if (b.jasmineMatches) {
+    return b.jasmineMatches(a);
+  }
+
+  if (a instanceof jasmine.Matchers.ObjectContaining) {
     return a.matches(b);
   }
 
-  if (b instanceof jasmine.Matchers.Any) {
+  if (b instanceof jasmine.Matchers.ObjectContaining) {
     return b.matches(a);
   }
 
@@ -989,6 +1028,12 @@ jasmine.Block = function(env, func, spec) {
   this.env = env;
   this.func = func;
   this.spec = spec;
+  if (!spec) {
+    this.tags = {};
+  }
+  else {
+    this.tags = spec.tags;
+  }
 };
 
 jasmine.Block.prototype.execute = function(onComplete) {  
@@ -1448,7 +1493,7 @@ jasmine.Matchers.Any = function(expectedClass) {
   this.expectedClass = expectedClass;
 };
 
-jasmine.Matchers.Any.prototype.matches = function(other) {
+jasmine.Matchers.Any.prototype.jasmineMatches = function(other) {
   if (this.expectedClass == String) {
     return typeof other == 'string' || other instanceof String;
   }
@@ -1468,10 +1513,39 @@ jasmine.Matchers.Any.prototype.matches = function(other) {
   return other instanceof this.expectedClass;
 };
 
-jasmine.Matchers.Any.prototype.toString = function() {
+jasmine.Matchers.Any.prototype.jasmineToString = function() {
   return '<jasmine.any(' + this.expectedClass + ')>';
 };
 
+jasmine.Matchers.ObjectContaining = function (sample) {
+  this.sample = sample;
+};
+
+jasmine.Matchers.ObjectContaining.prototype.jasmineMatches = function(other, mismatchKeys, mismatchValues) {
+  mismatchKeys = mismatchKeys || [];
+  mismatchValues = mismatchValues || [];
+
+  var env = jasmine.getEnv();
+
+  var hasKey = function(obj, keyName) {
+    return obj != null && obj[keyName] !== jasmine.undefined;
+  };
+
+  for (var property in this.sample) {
+    if (!hasKey(other, property) && hasKey(this.sample, property)) {
+      mismatchKeys.push("expected has key '" + property + "', but missing from actual.");
+    }
+    else if (!env.equals_(this.sample[property], other[property], mismatchKeys, mismatchValues)) {
+      mismatchValues.push("'" + property + "' was '" + (other[property] ? jasmine.util.htmlEscape(other[property].toString()) : other[property]) + "' in expected, but was '" + (this.sample[property] ? jasmine.util.htmlEscape(this.sample[property].toString()) : this.sample[property]) + "' in actual.");
+    }
+  }
+
+  return (mismatchKeys.length === 0 && mismatchValues.length === 0);
+};
+
+jasmine.Matchers.ObjectContaining.prototype.jasmineToString = function () {
+  return "<jasmine.objectContaining(" + jasmine.pp(this.sample) + ")>";
+};
 /**
  * @constructor
  */
@@ -1612,8 +1686,8 @@ jasmine.PrettyPrinter.prototype.format = function(value) {
       this.emitScalar('null');
     } else if (value === jasmine.getGlobal()) {
       this.emitScalar('<global>');
-    } else if (value instanceof jasmine.Matchers.Any) {
-      this.emitScalar(value.toString());
+    } else if (value.jasmineToString) {
+      this.emitScalar(value.jasmineToString());
     } else if (typeof value === 'string') {
       this.emitString(value);
     } else if (jasmine.isSpy(value)) {
@@ -1869,6 +1943,22 @@ jasmine.Runner.prototype.specs = function () {
   return specs;
 };
 
+jasmine.Runner.prototype.filterRun = function(filter) {
+  var filtered = [];
+  var blocks = this.queue.blocks;
+  for (var i=0; i < blocks.length; i++) {
+    for (key in filter) {
+      if (blocks[i].tags[key] === filter[key]){
+        filtered.push(blocks[i])
+      }
+    }
+  }
+
+  if (filtered.length) {
+    this.queue.blocks = filtered;
+  }
+};
+
 jasmine.Runner.prototype.suites = function() {
   return this.suites_;
 };
@@ -1894,7 +1984,7 @@ jasmine.Runner.prototype.results = function() {
  * @param {jasmine.Suite} suite
  * @param {String} description
  */
-jasmine.Spec = function(env, suite, description) {
+jasmine.Spec = function(env, suite, description, tags) {
   if (!env) {
     throw new Error('jasmine.Env() required');
   }
@@ -1907,6 +1997,7 @@ jasmine.Spec = function(env, suite, description) {
   spec.suite = suite;
   spec.description = description;
   spec.queue = new jasmine.Queue(env);
+  spec.tags = tags;
 
   spec.afterCallbacks = [];
   spec.spies_ = [];
@@ -2137,19 +2228,25 @@ jasmine.Spec.prototype.removeAllSpies = function() {
  * @param {String} description
  * @param {Function} specDefinitions
  * @param {jasmine.Suite} parentSuite
+ * @param {Object} tags
  */
-jasmine.Suite = function(env, description, specDefinitions, parentSuite) {
+jasmine.Suite = function(env, description, specDefinitions, parentSuite, tags) {
   var self = this;
   self.id = env.nextSuiteId ? env.nextSuiteId() : null;
   self.description = description;
   self.queue = new jasmine.Queue(env);
   self.parentSuite = parentSuite;
+  self.tags = tags || self.inheritTags(parentSuite);
   self.env = env;
   self.before_ = [];
   self.after_ = [];
   self.children_ = [];
   self.suites_ = [];
   self.specs_ = [];
+};
+
+jasmine.Suite.prototype.inheritTags = function(suite) {
+  return (typeof parentSuite !== "undefined" && parentSuite !== null) ? parentSuite.tags : {};
 };
 
 jasmine.Suite.prototype.getFullName = function() {
@@ -2467,5 +2564,5 @@ jasmine.version_= {
   "major": 1,
   "minor": 1,
   "build": 0,
-  "revision": 1308150691
-}
+  "revision": 1325633011
+};
