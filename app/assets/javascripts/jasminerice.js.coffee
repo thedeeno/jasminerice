@@ -9,13 +9,13 @@
   jasmineEnv.updateInterval = 1000
 
   window.jsApiReporter = new jasmine.JsApiReporter()
-  trivialReporter = new jasmine.TrivialReporter()
+  htmlReporter = new jasmine.HtmlReporter()
 
-  jasmineEnv.addReporter trivialReporter
+  jasmineEnv.addReporter htmlReporter
   jasmineEnv.addReporter jsApiReporter
 
   jasmineEnv.specFilter = (spec) ->
-    trivialReporter.specFilter spec
+    htmlReporter.specFilter spec
 
   currentWindowOnload = window.onload
   window.onload = ->
