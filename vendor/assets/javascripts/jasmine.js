@@ -789,14 +789,8 @@ jasmine.Env.prototype.execute = function() {
   this.currentRunner_.execute();
 };
 
-jasmine.Env.prototype.describe = function(description, tags, specDefinitions) {
-  if (!specDefinitions) {
-    specDefinitions = tags;
-    tags = null;
-  }
-
-  tags = tags || {};
-  var suite = new jasmine.Suite(this, description, specDefinitions, this.currentSuite, tags);
+jasmine.Env.prototype.describe = function(description, specDefinitions) {
+  var suite = new jasmine.Suite(this, description, specDefinitions, this.currentSuite);
 
   var parentSuite = this.currentSuite;
   if (parentSuite) {
@@ -853,13 +847,8 @@ jasmine.Env.prototype.xdescribe = function(desc, specDefinitions) {
   };
 };
 
-jasmine.Env.prototype.it = function(description, tags, func) {
-  if (!func) {
-    func = tags;
-    tags = null;
-  }
-
-  var spec = new jasmine.Spec(this, this.currentSuite, description, tags);
+jasmine.Env.prototype.it = function(description, func) {
+  var spec = new jasmine.Spec(this, this.currentSuite, description);
   this.currentSuite.add(spec);
   this.currentSpec = spec;
 
@@ -1028,12 +1017,6 @@ jasmine.Block = function(env, func, spec) {
   this.env = env;
   this.func = func;
   this.spec = spec;
-  if (!spec) {
-    this.tags = {};
-  }
-  else {
-    this.tags = spec.tags;
-  }
 };
 
 jasmine.Block.prototype.execute = function(onComplete) {  
@@ -1943,22 +1926,6 @@ jasmine.Runner.prototype.specs = function () {
   return specs;
 };
 
-jasmine.Runner.prototype.filterRun = function(filter) {
-  var filtered = [];
-  var blocks = this.queue.blocks;
-  for (var i=0; i < blocks.length; i++) {
-    for (key in filter) {
-      if (blocks[i].tags[key] === filter[key]){
-        filtered.push(blocks[i])
-      }
-    }
-  }
-
-  if (filtered.length) {
-    this.queue.blocks = filtered;
-  }
-};
-
 jasmine.Runner.prototype.suites = function() {
   return this.suites_;
 };
@@ -1984,7 +1951,7 @@ jasmine.Runner.prototype.results = function() {
  * @param {jasmine.Suite} suite
  * @param {String} description
  */
-jasmine.Spec = function(env, suite, description, tags) {
+jasmine.Spec = function(env, suite, description) {
   if (!env) {
     throw new Error('jasmine.Env() required');
   }
@@ -1997,7 +1964,6 @@ jasmine.Spec = function(env, suite, description, tags) {
   spec.suite = suite;
   spec.description = description;
   spec.queue = new jasmine.Queue(env);
-  spec.tags = tags;
 
   spec.afterCallbacks = [];
   spec.spies_ = [];
@@ -2228,25 +2194,19 @@ jasmine.Spec.prototype.removeAllSpies = function() {
  * @param {String} description
  * @param {Function} specDefinitions
  * @param {jasmine.Suite} parentSuite
- * @param {Object} tags
  */
-jasmine.Suite = function(env, description, specDefinitions, parentSuite, tags) {
+jasmine.Suite = function(env, description, specDefinitions, parentSuite) {
   var self = this;
   self.id = env.nextSuiteId ? env.nextSuiteId() : null;
   self.description = description;
   self.queue = new jasmine.Queue(env);
   self.parentSuite = parentSuite;
-  self.tags = tags || self.inheritTags(parentSuite);
   self.env = env;
   self.before_ = [];
   self.after_ = [];
   self.children_ = [];
   self.suites_ = [];
   self.specs_ = [];
-};
-
-jasmine.Suite.prototype.inheritTags = function(suite) {
-  return (typeof parentSuite !== "undefined" && parentSuite !== null) ? parentSuite.tags : {};
 };
 
 jasmine.Suite.prototype.getFullName = function() {
@@ -2564,5 +2524,5 @@ jasmine.version_= {
   "major": 1,
   "minor": 1,
   "build": 0,
-  "revision": 1325633011
+  "revision": 1325648976
 };
